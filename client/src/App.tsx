@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/lib/theme";
 import { ThemeToggle } from "@/components/theme-toggle";
 import NotFound from "@/pages/not-found";
+import Home from "@/pages/home";
 import Dashboard from "@/pages/dashboard";
 import NewAudit from "@/pages/new-audit";
 import AuditDetail from "@/pages/audit-detail";
@@ -15,7 +16,8 @@ import { Link } from "wouter";
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Dashboard} />
+      <Route path="/" component={Home} />
+      <Route path="/dashboard" component={Dashboard} />
       <Route path="/new-audit" component={NewAudit} />
       <Route path="/audit/:id" component={AuditDetail} />
       <Route component={NotFound} />
@@ -35,7 +37,12 @@ function AppHeader() {
             <span className="font-bold text-sm tracking-tight">UX Ghost Buster</span>
           </div>
         </Link>
-        <ThemeToggle />
+        <div className="flex items-center gap-2">
+          <Link href="/dashboard">
+            <span className="text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer hidden sm:inline" data-testid="link-nav-dashboard">Dashboard</span>
+          </Link>
+          <ThemeToggle />
+        </div>
       </div>
     </header>
   );
@@ -48,7 +55,7 @@ function App() {
         <TooltipProvider>
           <div className="min-h-screen bg-background text-foreground">
             <AppHeader />
-            <main className="pb-12">
+            <main>
               <Router />
             </main>
           </div>
