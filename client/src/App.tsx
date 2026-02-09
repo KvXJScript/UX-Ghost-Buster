@@ -3,26 +3,58 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ThemeProvider } from "@/lib/theme";
+import { ThemeToggle } from "@/components/theme-toggle";
 import NotFound from "@/pages/not-found";
+import Dashboard from "@/pages/dashboard";
+import NewAudit from "@/pages/new-audit";
+import AuditDetail from "@/pages/audit-detail";
+import { Ghost } from "lucide-react";
+import { Link } from "wouter";
 
 function Router() {
   return (
     <Switch>
-      {/* Add pages below */}
-      {/* <Route path="/" component={Home}/> */}
-      {/* Fallback to 404 */}
+      <Route path="/" component={Dashboard} />
+      <Route path="/new-audit" component={NewAudit} />
+      <Route path="/audit/:id" component={AuditDetail} />
       <Route component={NotFound} />
     </Switch>
+  );
+}
+
+function AppHeader() {
+  return (
+    <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur-sm">
+      <div className="max-w-5xl mx-auto flex items-center justify-between gap-4 px-4 md:px-6 h-14">
+        <Link href="/">
+          <div className="flex items-center gap-2 cursor-pointer hover-elevate rounded-md px-2 py-1" data-testid="link-home">
+            <div className="p-1.5 rounded-md bg-primary">
+              <Ghost className="w-4 h-4 text-primary-foreground" />
+            </div>
+            <span className="font-bold text-sm tracking-tight">UX Ghost Buster</span>
+          </div>
+        </Link>
+        <ThemeToggle />
+      </div>
+    </header>
   );
 }
 
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Router />
-      </TooltipProvider>
+      <ThemeProvider>
+        <TooltipProvider>
+          <div className="min-h-screen bg-background text-foreground">
+            <AppHeader />
+            <main className="pb-12">
+              <Router />
+            </main>
+          </div>
+          <Toaster />
+        </TooltipProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }

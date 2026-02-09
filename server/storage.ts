@@ -1,38 +1,89 @@
-import { type User, type InsertUser } from "@shared/schema";
-import { randomUUID } from "crypto";
-
-// modify the interface with any CRUD methods
-// you might need
+import { eq, desc } from "drizzle-orm";
+import { db } from "./db";
+import {
+  audits, ghostSessions, findings, remediations,
+  type Audit, type InsertAudit,
+  type GhostSession, type InsertGhostSession,
+  type Finding, type InsertFinding,
+  type Remediation, type InsertRemediation,
+} from "@shared/schema";
 
 export interface IStorage {
-  getUser(id: string): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
+  createAudit(data: InsertAudit): Promise<Audit>;
+  getAudit(id: number): Promise<Audit | undefined>;
+  getAllAudits(): Promise<Audit[]>;
+  updateAudit(id: number, data: Partial<Audit>): Promise<Audit>;
+
+  createGhostSession(data: InsertGhostSession): Promise<GhostSession>;
+  getSessionsByAudit(auditId: number): Promise<GhostSession[]>;
+  updateSession(id: number, data: Partial<GhostSession>): Promise<GhostSession>;
+
+  createFinding(data: InsertFinding): Promise<Finding>;
+  getFindingsByAudit(auditId: number): Promise<Finding[]>;
+
+  createRemediation(data: InsertRemediation): Promise<Remediation>;
+  getRemediationsByAudit(auditId: number): Promise<Remediation[]>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User>;
-
-  constructor() {
-    this.users = new Map();
+export class DatabaseStorage implements IStorage {
+  async createAudit(data: InsertAudit): Promise<Audit> {
+    const [audit] = await db.insert(audits).values(data).returning();
+    return audit;
   }
 
-  async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+  async getAudit(id: number): Promise<Audit | undefined> {
+    const [audit] = await db.select().from(audits).where(eq(audits.id, id));
+    return audit;
   }
 
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+  async getAllAudits(): Promise<Audit[]> {
+    return db.select().from(audits).orderBy(desc(audits.createdAt));
   }
 
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
-    return user;
+  async updateAudit(id: number, data: Partial<Audit>): Promise<Audit> {
+    const [audit] = await db.update(audits).set(data).where(eq(audits.id, id)).returning();
+    return audit;
+  }
+
+  async createGhostSession(data: InsertGhostSession): Promise<GhostSession> {
+    const [session] = await db.insert(ghostSessions).values(data).returning();
+    return session;
+  }
+
+  async getSessionsByAudit(auditId: number): Promise<GhostSession[]> {
+    return db.select().from(ghostSessions).where(eq(ghostSessions.auditId, auditId));
+  }
+
+  async updateSession(id: number, data: Partial<GhostSession>): Promise<GhostSession> {
+    const [session] = await db.update(ghostSessions).set(data).where(eq(ghostSessions.id, id)).returning();
+    return session;
+  }
+
+  async createFinding(data: InsertFinding): Promise<Finding> {
+    const [finding] = await db.insert(findings).values(data).returning();
+    return finding;
+  }
+
+  async getFindingsByAudit(auditId: number): Promise<Finding[]> {
+    return db.select().from(findings).where(eq(findings.auditId, auditId));
+  }
+
+  async createRemediation(data: InsertRemediation): Promise<Remediation> {
+    const [remediation] = await db.insert(remediations).values(data).returning();
+    return remediation;
+  }
+
+  async getRemediationsByAudit(auditId: number): Promise<Remediation[]> {
+    const auditFindings = await this.getFindingsByAudit(auditId);
+    const findingIds = auditFindings.map((f) => f.id);
+    if (findingIds.length === 0) return [];
+    const allRemediations: Remediation[] = [];
+    for (const fid of findingIds) {
+      const rems = await db.select().from(remediations).where(eq(remediations.findingId, fid));
+      allRemediations.push(...rems);
+    }
+    return allRemediations;
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
