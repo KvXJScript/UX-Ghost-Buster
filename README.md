@@ -230,9 +230,8 @@ npm run dev
 ```
 
 **Environment Variables:**
-- `DATABASE_URL` — PostgreSQL connection string (auto-configured on Replit)
+- `DATABASE_URL` — PostgreSQL connection string
 - `SESSION_SECRET` — Session signing key
-- Gemini AI keys are managed through Replit AI Integrations
 
 ---
 
@@ -248,8 +247,6 @@ npm run dev
 ---
 
 <div align="center">
-
-_Built with Replit Agent_
 
 **UX Ghost Buster** — Because every user deserves a seamless experience.
 
