@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { useParams, Link } from "wouter";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { useParams, Link, useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7,15 +7,24 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
+import { Input } from "@/components/ui/input";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import {
   ArrowLeft, Ghost, AlertTriangle, AlertCircle, Info,
   CheckCircle2, Loader2, Clock, Code2, ExternalLink,
   Baby, Keyboard, Eye, Smartphone, Brain, Accessibility,
-  ChevronRight, BarChart3, Layers, Shield, Target, Lightbulb
+  ChevronRight, BarChart3, Layers, Shield, Target, Lightbulb,
+  Copy, Check, Download, Trash2, RefreshCw, Search, X
 } from "lucide-react";
 import type { Audit, GhostSession, Finding, Remediation } from "@shared/schema";
 import { motion, AnimatePresence } from "framer-motion";
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 const PERSONA_ICONS: Record<string, typeof Ghost> = {
   "distracted-parent": Baby,
@@ -33,6 +42,15 @@ const PERSONA_COLORS: Record<string, string> = {
   "mobile-commuter": "text-emerald-500 dark:text-emerald-400",
   "cognitive-load": "text-amber-500 dark:text-amber-400",
   "screen-reader": "text-cyan-500 dark:text-cyan-400",
+};
+
+const PERSONA_ID_MAP: Record<string, string> = {
+  "distracted-parent": "distracted-parent",
+  "keyboard-only-user": "keyboard-only",
+  "low-vision-user": "low-vision",
+  "mobile-commuter": "mobile-commuter",
+  "overwhelmed-user": "cognitive-load",
+  "screen-reader-user": "screen-reader",
 };
 
 function SeverityBadge({ severity }: { severity: string }) {
@@ -59,6 +77,35 @@ function SeverityBadge({ severity }: { severity: string }) {
         </Badge>
       );
   }
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const { toast } = useToast();
+
+  const handleCopy = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      toast({ title: "Copied to clipboard" });
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast({ title: "Failed to copy", variant: "destructive" });
+    }
+  }, [text, toast]);
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={handleCopy}
+      className="shrink-0"
+      data-testid="button-copy-code"
+    >
+      {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+    </Button>
+  );
 }
 
 function FindingCard({ finding, remediations, index }: {
@@ -125,10 +172,13 @@ function FindingCard({ finding, remediations, index }: {
                     <div key={rem.id} className="space-y-2">
                       <p className="text-xs text-muted-foreground">{rem.description}</p>
                       <div className="relative">
-                        <Badge variant="outline" className="absolute top-2 right-2 text-[10px]">
-                          {rem.language}
-                        </Badge>
-                        <pre className="bg-muted rounded-md p-3 text-xs font-mono overflow-x-auto">
+                        <div className="absolute top-2 right-2 flex items-center gap-1">
+                          <Badge variant="outline" className="text-[10px]">
+                            {rem.language}
+                          </Badge>
+                          <CopyButton text={rem.codeSnippet} />
+                        </div>
+                        <pre className="bg-muted rounded-md p-3 pr-24 text-xs font-mono overflow-x-auto">
                           <code>{rem.codeSnippet}</code>
                         </pre>
                       </div>
@@ -144,12 +194,28 @@ function FindingCard({ finding, remediations, index }: {
   );
 }
 
-function SessionPanel({ session, findings, remediations }: {
+function SessionPanel({ session, findings, remediations, severityFilter, searchQuery }: {
   session: GhostSession;
   findings: Finding[];
   remediations: Remediation[];
+  severityFilter: string;
+  searchQuery: string;
 }) {
-  const sessionFindings = findings.filter((f) => f.sessionId === session.id);
+  let sessionFindings = findings.filter((f) => f.sessionId === session.id);
+
+  if (severityFilter !== "all") {
+    sessionFindings = sessionFindings.filter((f) => f.severity === severityFilter);
+  }
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    sessionFindings = sessionFindings.filter((f) =>
+      f.impactDescription.toLowerCase().includes(q) ||
+      f.category.toLowerCase().includes(q) ||
+      (f.elementSelector && f.elementSelector.toLowerCase().includes(q)) ||
+      (f.wcagCriteria && f.wcagCriteria.toLowerCase().includes(q))
+    );
+  }
+
   const personaKey = session.persona.toLowerCase().replace(/\s+/g, "-").replace(/^the-/, "");
   const Icon = PERSONA_ICONS[personaKey] || Ghost;
   const color = PERSONA_COLORS[personaKey] || "text-muted-foreground";
@@ -179,7 +245,9 @@ function SessionPanel({ session, findings, remediations }: {
         <Card>
           <CardContent className="p-6 text-center">
             <CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto mb-2" />
-            <p className="text-sm text-muted-foreground">No issues found for this persona</p>
+            <p className="text-sm text-muted-foreground">
+              {severityFilter !== "all" || searchQuery ? "No findings match your filters" : "No issues found for this persona"}
+            </p>
           </CardContent>
         </Card>
       )}
@@ -189,6 +257,10 @@ function SessionPanel({ session, findings, remediations }: {
 
 export default function AuditDetail() {
   const { id } = useParams<{ id: string }>();
+  const [, navigate] = useLocation();
+  const { toast } = useToast();
+  const [severityFilter, setSeverityFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { data: audit, isLoading: auditLoading } = useQuery<Audit>({
     queryKey: ["/api/audits", id],
@@ -201,9 +273,7 @@ export default function AuditDetail() {
   const { data: sessions } = useQuery<GhostSession[]>({
     queryKey: ["/api/audits", id, "sessions"],
     enabled: !!audit,
-    refetchInterval: (query) => {
-      return audit?.status === "completed" ? false : 3000;
-    },
+    refetchInterval: () => audit?.status === "completed" ? false : 3000,
   });
 
   const { data: allFindings } = useQuery<Finding[]>({
@@ -216,6 +286,52 @@ export default function AuditDetail() {
     queryKey: ["/api/audits", id, "remediations"],
     enabled: !!audit && audit.status === "completed",
   });
+
+  const deleteAudit = useMutation({
+    mutationFn: async () => {
+      await apiRequest("DELETE", `/api/audits/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/audits"] });
+      toast({ title: "Audit deleted" });
+      navigate("/dashboard");
+    },
+    onError: () => {
+      toast({ title: "Failed to delete audit", variant: "destructive" });
+    },
+  });
+
+  const handleExport = useCallback(async () => {
+    try {
+      const res = await apiRequest("GET", `/api/audits/${id}/export`);
+      const data = await res.json();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `ghost-audit-${id}-${Date.now()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast({ title: "Report exported" });
+    } catch {
+      toast({ title: "Export failed", variant: "destructive" });
+    }
+  }, [id, toast]);
+
+  const handleReaudit = useCallback(() => {
+    if (!audit || !sessions) return;
+    const personaIds = sessions.map((s) => {
+      const key = s.persona.toLowerCase().replace(/\s+/g, "-").replace(/^the-/, "");
+      return PERSONA_ID_MAP[key] || key;
+    });
+    const params = new URLSearchParams({
+      url: audit.targetUrl,
+      personas: personaIds.join(","),
+    });
+    navigate(`/new-audit?${params.toString()}`);
+  }, [audit, sessions, navigate]);
 
   if (auditLoading) {
     return (
@@ -248,7 +364,7 @@ export default function AuditDetail() {
   const progress = totalSessions > 0 ? (completedSessions / totalSessions) * 100 : 0;
 
   return (
-    <div className="max-w-5xl mx-auto p-4 md:p-6 space-y-6">
+    <div className="max-w-5xl mx-auto p-4 md:p-6 space-y-6 pb-12">
       <div className="flex items-start gap-3">
         <Link href="/dashboard">
           <Button variant="ghost" size="icon" data-testid="button-back-to-dash">
@@ -282,6 +398,44 @@ export default function AuditDetail() {
               minute: "2-digit",
             })}
           </p>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          {audit.status === "completed" && (
+            <>
+              <Button variant="ghost" size="icon" onClick={handleReaudit} data-testid="button-reaudit">
+                <RefreshCw className="w-4 h-4" />
+              </Button>
+              <Button variant="ghost" size="icon" onClick={handleExport} data-testid="button-export">
+                <Download className="w-4 h-4" />
+              </Button>
+            </>
+          )}
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="ghost" size="icon" data-testid="button-delete-audit">
+                <Trash2 className="w-4 h-4 text-destructive" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete this audit?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently remove the audit for {urlDisplay}, including all findings, remediations, and reasoning logs. This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => deleteAudit.mutate()}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  data-testid="button-confirm-delete"
+                >
+                  {deleteAudit.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Trash2 className="w-4 h-4 mr-2" />}
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </div>
 
@@ -339,6 +493,46 @@ export default function AuditDetail() {
         </Card>
       )}
 
+      {sessions && sessions.length > 0 && allFindings && allFindings.length > 0 && (
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="relative flex-1 min-w-[180px]">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                <Input
+                  placeholder="Search findings..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-8 h-9 text-sm"
+                  data-testid="input-search-findings"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2"
+                  >
+                    <X className="w-3.5 h-3.5 text-muted-foreground" />
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-1">
+                {["all", "critical", "major", "minor"].map((sev) => (
+                  <Button
+                    key={sev}
+                    variant={severityFilter === sev ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setSeverityFilter(sev)}
+                    data-testid={`button-filter-${sev}`}
+                  >
+                    {sev === "all" ? "All" : sev.charAt(0).toUpperCase() + sev.slice(1)}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {sessions && sessions.length > 0 && (
         <Tabs defaultValue={sessions[0]?.id.toString()} className="space-y-4">
           <TabsList className="w-full justify-start overflow-x-auto flex-nowrap">
@@ -371,6 +565,8 @@ export default function AuditDetail() {
                 session={session}
                 findings={allFindings || []}
                 remediations={allRemediations || []}
+                severityFilter={severityFilter}
+                searchQuery={searchQuery}
               />
             </TabsContent>
           ))}

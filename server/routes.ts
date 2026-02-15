@@ -106,6 +106,42 @@ export async function registerRoutes(
     }
   });
 
+  app.delete("/api/audits/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: "Invalid audit ID" });
+      const audit = await storage.getAudit(id);
+      if (!audit) return res.status(404).json({ error: "Audit not found" });
+      await storage.deleteAudit(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting audit:", error);
+      res.status(500).json({ error: "Failed to delete audit" });
+    }
+  });
+
+  app.get("/api/audits/:id/export", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: "Invalid audit ID" });
+      const audit = await storage.getAudit(id);
+      if (!audit) return res.status(404).json({ error: "Audit not found" });
+      const sessions = await storage.getSessionsByAudit(id);
+      const findingsList = await storage.getFindingsByAudit(id);
+      const remediationsList = await storage.getRemediationsByAudit(id);
+      res.json({
+        audit,
+        sessions,
+        findings: findingsList,
+        remediations: remediationsList,
+        exportedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Error exporting audit:", error);
+      res.status(500).json({ error: "Failed to export audit" });
+    }
+  });
+
   app.post("/api/audits", async (req, res) => {
     try {
       const parsed = createAuditSchema.safeParse(req.body);

@@ -1,4 +1,4 @@
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, inArray } from "drizzle-orm";
 import { db } from "./db";
 import {
   audits, ghostSessions, findings, remediations,
@@ -13,6 +13,7 @@ export interface IStorage {
   getAudit(id: number): Promise<Audit | undefined>;
   getAllAudits(): Promise<Audit[]>;
   updateAudit(id: number, data: Partial<Audit>): Promise<Audit>;
+  deleteAudit(id: number): Promise<void>;
 
   createGhostSession(data: InsertGhostSession): Promise<GhostSession>;
   getSessionsByAudit(auditId: number): Promise<GhostSession[]>;
@@ -23,6 +24,7 @@ export interface IStorage {
 
   createRemediation(data: InsertRemediation): Promise<Remediation>;
   getRemediationsByAudit(auditId: number): Promise<Remediation[]>;
+  getRemediationsByFindingIds(findingIds: number[]): Promise<Remediation[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -43,6 +45,10 @@ export class DatabaseStorage implements IStorage {
   async updateAudit(id: number, data: Partial<Audit>): Promise<Audit> {
     const [audit] = await db.update(audits).set(data).where(eq(audits.id, id)).returning();
     return audit;
+  }
+
+  async deleteAudit(id: number): Promise<void> {
+    await db.delete(audits).where(eq(audits.id, id));
   }
 
   async createGhostSession(data: InsertGhostSession): Promise<GhostSession> {
@@ -77,12 +83,12 @@ export class DatabaseStorage implements IStorage {
     const auditFindings = await this.getFindingsByAudit(auditId);
     const findingIds = auditFindings.map((f) => f.id);
     if (findingIds.length === 0) return [];
-    const allRemediations: Remediation[] = [];
-    for (const fid of findingIds) {
-      const rems = await db.select().from(remediations).where(eq(remediations.findingId, fid));
-      allRemediations.push(...rems);
-    }
-    return allRemediations;
+    return db.select().from(remediations).where(inArray(remediations.findingId, findingIds));
+  }
+
+  async getRemediationsByFindingIds(findingIds: number[]): Promise<Remediation[]> {
+    if (findingIds.length === 0) return [];
+    return db.select().from(remediations).where(inArray(remediations.findingId, findingIds));
   }
 }
 

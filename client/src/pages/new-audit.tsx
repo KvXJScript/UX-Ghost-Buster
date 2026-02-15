@@ -64,8 +64,14 @@ const PERSONAS = [
 ];
 
 export default function NewAudit() {
-  const [url, setUrl] = useState("");
-  const [selectedPersonas, setSelectedPersonas] = useState<string[]>(["distracted-parent", "keyboard-only"]);
+  const params = new URLSearchParams(window.location.search);
+  const prefillUrl = params.get("url") || "";
+  const prefillPersonas = params.get("personas");
+
+  const [url, setUrl] = useState(prefillUrl);
+  const [selectedPersonas, setSelectedPersonas] = useState<string[]>(
+    prefillPersonas ? prefillPersonas.split(",").filter(Boolean) : ["distracted-parent", "keyboard-only"]
+  );
   const [, navigate] = useLocation();
   const { toast } = useToast();
 
